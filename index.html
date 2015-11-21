@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Sky12 by wangfakang</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/github-light.css">
+    <script src="javascripts/scale.fix.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1 class="header">Sky12</h1>
+        <p class="header">lvs and nginx load 四层与七层上的负载</p>
+
+        <ul>
+          <li class="download"><a class="buttons" href="https://github.com/wangfakang/sky12/zipball/master">Download ZIP</a></li>
+          <li class="download"><a class="buttons" href="https://github.com/wangfakang/sky12/tarball/master">Download TAR</a></li>
+          <li><a class="buttons github" href="https://github.com/wangfakang/sky12">View On GitHub</a></li>
+        </ul>
+
+        <p class="header">This project is maintained by <a class="header name" href="https://github.com/wangfakang">wangfakang</a></p>
+
+
+      </header>
+      <section>
+        <p><code>四层与七层的负载均衡:</code>    </p>
+
+<p>想必大家都知道一般lvs可以做四层上的负载均衡[即传输层],而nginx可以做七层上的负载均衡[应用层].lvs在做负载均衡
+的时候之所以没有流量产生,我个人理解是:由于在四层就决定了所要分发的机器即"个别"的可以说在三次握手的时候此时还没
+有进行数据发送,所以就"没有"流量产生.[不知道对不对,不对的话请拍砖].</p>
+
+<h1>
+<a id="nginx七层上的负载均衡------" class="anchor" href="#nginx%E4%B8%83%E5%B1%82%E4%B8%8A%E7%9A%84%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1------" aria-hidden="true"><span class="octicon octicon-link"></span></a>Nginx七层上的负载均衡:      </h1>
+
+<p>nginx作为七层的负载均衡主要就是利用其:proxy_pass以及upstream来进行负载均衡,常见的负载均衡算法请看之前写的
+<a href="http://wangfakang.github.io/sky6">文章</a>.</p>
+
+<h1>
+<a id="lvs四层上的负载均衡---------" class="anchor" href="#lvs%E5%9B%9B%E5%B1%82%E4%B8%8A%E7%9A%84%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1---------" aria-hidden="true"><span class="octicon octicon-link"></span></a>Lvs四层上的负载均衡:         </h1>
+
+<p>首先lvs在四层上的负载均衡有三种方式[网上也有好多的资料]分别是:    </p>
+
+<p>## DR模式的工作过程：</p>
+
+<ul>
+<li>1.当一个client发送一个WEB请求到VIP，LVS服务器根据VIP选择对应的real-server的Pool，根据算法，在Pool中选择一台
+Real-server.</li>
+<li>2.LVS在hash表中记录该次连接，然后将client的请求包发给选择的Real-server.</li>
+<li>3.最后选择的Real-server把应答包直接传给client.</li>
+<li>4.当client继续发包过来时，LVS根据更才记录的hash表的信息，将属于此次连接的请求直接发到刚才选择的Real-server上.
+当连接中止或者超时，hash表中的记录将被删除。</li>
+</ul>
+
+<p>DR模式的几个细节：<br>
+  LVS和Real-server必须在相同的网段.   </p>
+
+<p>DR模式在转发client的包时，只修改了包目的MAC地址为选定的Real-server的mac地址，所以如果LVS和Real-server在不通
+的广播域内，那么Real-server就没办法接收到转发的包.   </p>
+
+<h2>
+<a id="ip-tunneling模式" class="anchor" href="#ip-tunneling%E6%A8%A1%E5%BC%8F" aria-hidden="true"><span class="octicon octicon-link"></span></a>IP Tunneling模式：</h2>
+
+<ul>
+<li>1. client 发送request包到LVS服务器的VIP上.<br>
+</li>
+<li>2. VIP按照算法选择后端的一个Real-server，并将记录一条消息到hash表中，然后将client的request包封装到一个新的IP
+包里，新IP包的目的IP是Real-server的IP，然后转发给Real-server.<br>
+</li>
+<li>3. Real-server收到包后，解封装，取出client的request包，发现他的目的地址是VIP，而Real-server发现在自己的lo:0口
+上有这个IP地址，于是处理client的请求，然后将relpy这个request包直接发给client.<br>
+</li>
+<li>4. 该client的后面的request包，LVS直接按照hash表中的记录直接转发给Real-server，当传输完毕或者连接超时，那么将删
+除hash表中的记录.</li>
+</ul>
+
+<p>LVS和Real-server不需要在一个网段：    </p>
+
+<p>由于通过IP Tunneling 封装后，封装后的IP包的目的地址为Real-server的IP地址，那么只要Real-server的地址能路由可达，
+Real-server在什么网络里都可以，这样可以减少对于公网IP地址的消耗，但是因为要处理IP Tunneling封装和解封装的开销，那
+么效率不如DR模式.   </p>
+
+<h2>
+<a id="nat模式" class="anchor" href="#nat%E6%A8%A1%E5%BC%8F" aria-hidden="true"><span class="octicon octicon-link"></span></a>NAT模式：</h2>
+
+<ul>
+<li>1.client发送request到LVS的VIP上，VIP选择一个Real-server，并记录连接信息到hash表中，然后修改client的request的目
+的IP地址为Real-server的地址，将请求发给Real-server.</li>
+<li>2.Real-server收到request包后，发现目的IP是自己的IP，于是处理请求，然后发送reply给LVS.</li>
+<li>3.LVS收到reply包后，修改reply包的的源地址为VIP，发送给client.</li>
+<li>4.从client来的属于本次连接的包，查hash表，然后发给对应的Real-server.</li>
+<li>5.当client发送完毕，此次连接结束或者连接超时，那么LVS自动从hash表中删除此条记录.</li>
+</ul>
+
+<h1>
+<a id="注意-----" class="anchor" href="#%E6%B3%A8%E6%84%8F-----" aria-hidden="true"><span class="octicon octicon-link"></span></a>注意:     </h1>
+
+<p>NAT模式和DR模式的却别DR模式是修改了目的MAC地址为真实server的mac地址,而NAT模式是修改了请求的目的ip地址是真实server
+的ip地址.还有一个区别就是DR模式直接从真实机器把响应给client,而NAT模式需要把响应给lvs主机然后由lvs主机在发给client.那
+么DR方式真实机器如何把响应直接就给client,由于在每一台真实机器上的网卡上都配有lvs的vip,这样最后响应的时候把目的和源ip
+调换就ok了[每一台的真实机器的ip和lvs的ip[vip]是一样的].    </p>
+
+<h1>
+<a id="欢迎一起交流学习-" class="anchor" href="#%E6%AC%A2%E8%BF%8E%E4%B8%80%E8%B5%B7%E4%BA%A4%E6%B5%81%E5%AD%A6%E4%B9%A0-" aria-hidden="true"><span class="octicon octicon-link"></span></a>欢迎一起交流学习 </h1>
+
+<p>在使用中有任何问题，欢迎反馈给我，可以用以下联系方式跟我交流</p>
+
+<ul>
+<li>邮件(1031379296#qq.com, 把#换成@)</li>
+<li>QQ: 1031379296</li>
+<li>weibo: <a href="http://weibo.com/u/2786211992/home">@王发康</a>
+</li>
+</ul>
+
+<h1>
+<a id="thx" class="anchor" href="#thx" aria-hidden="true"><span class="octicon octicon-link"></span></a>Thx</h1>
+
+<ul>
+<li>chunshengsterATgmail.com</li>
+</ul>
+
+<h1>
+<a id="author" class="anchor" href="#author" aria-hidden="true"><span class="octicon octicon-link"></span></a>Author</h1>
+
+<ul>
+<li>Linux\nginx\golang\c\c++爱好者</li>
+<li>欢迎一起交流  一起学习# </li>
+<li>Others say good and Others good</li>
+</ul>
+      </section>
+      <footer>
+        <p><small>Hosted on <a href="https://pages.github.com">GitHub Pages</a> using the Dinky theme</small></p>
+      </footer>
+    </div>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+		          <script type="text/javascript">
+            var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+            document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+          </script>
+          <script type="text/javascript">
+            try {
+              var pageTracker = _gat._getTracker("lvs and nginx load 四层与七层上的负载");
+            pageTracker._trackPageview();
+            } catch(err) {}
+          </script>
+
+  </body>
+</html>
